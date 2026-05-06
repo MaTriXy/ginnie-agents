@@ -21,6 +21,7 @@ import { agents, runAgent, resumeAgent, type AgentConfig } from "./runner";
 import { loadAgentSchedules, watchAgentSchedules, type ScheduleEntry } from "./scheduler";
 import { getSenderInfo, formatSenderLine, type SenderInfo } from "./users";
 import { isWithinWorkHours, offHoursNotice } from "./workhours";
+import { isAudioMime, transcribeAudio } from "./transcribe";
 
 // Load env from repo root. .env is the authoritative source for
 // CLAUDE_CODE_OAUTH_TOKEN, TZ, etc. — override any stale values that may
@@ -208,14 +209,28 @@ function wireAgentApp(agent: AgentConfig, app: App): void {
 		const threadTs = event.thread_ts || event.ts;
 		const isThreadReply = !!event.thread_ts;
 
-		const messageText = (event.text || "").replace(/<@[A-Z0-9]+>/g, "").trim();
-		if (!messageText) return;
+		const baseText = (event.text || "").replace(/<@[A-Z0-9]+>/g, "").trim();
+		const hasFiles = !!(event.files && event.files.length > 0);
+		// A voice-only @mention has no text after stripping the mention.
+		// Drop messages that have neither text nor any attached file.
+		if (!baseText && !hasFiles) return;
 
 		if (!(await passesWorkHours(agent, app, channel, threadTs))) return;
 
 		const sender = await getSenderInfo(app, event.user, agent);
 		if (!passesSenderPolicy(agent, sender)) return;
 		const senderLine = formatSenderLine(sender);
+
+		// Post early ack BEFORE transcription so the user sees feedback within
+		// the same ~200ms window non-audio messages get.
+		if (hasFiles && hasAudioAttachment(event.files)) {
+			await postEarlyAudioAck(agent, channel, threadTs);
+		}
+
+		const messageText = hasFiles
+			? await expandFileAttachments(event.files, agent, baseText)
+			: baseText;
+		if (!messageText) return;
 
 		console.log(`[@mention] Agent: ${agent.name}, From: ${sender.name} (${sender.role}), Channel: ${channel}, Thread: ${threadTs}`);
 		enqueueOrProcess({
@@ -252,28 +267,21 @@ function wireAgentApp(agent: AgentConfig, app: App): void {
 		//     prompt body, so prompt-injection-shaped filenames render as
 		//     escaped string literals rather than freestanding text
 		if (event.files && event.files.length > 0) {
-			const fileDescriptions = event.files.flatMap((f: any) => {
-				const url = String(f.url_private || "");
-				if (!/^https:\/\/files\.slack\.com\//.test(url)) return [];
-				const id = String(f.id || "").replace(/[^A-Za-z0-9_-]/g, "");
-				const rawName = String(f.name || "file");
-				const safeName = (rawName
-					.replace(/[^A-Za-z0-9._-]/g, "_")
-					.replace(/^\.+/, "")
-					.slice(0, 80)) || "file";
-				const safeMime = String(f.mimetype || "unknown")
-					.replace(/[^A-Za-z0-9._/+-]/g, "_");
-				const sizeKB = f.size ? Math.round(f.size / 1024) + "KB" : "unknown size";
-				const localPath = `/workspace/uploads/${id || "file"}_${safeName}`;
-				return [
-					`[File: name=${JSON.stringify(rawName)} (mime: ${safeMime}, size: ${sizeKB})]\n` +
-					`Saved-as: ${localPath}\n` +
-					`Download: mkdir -p /workspace/uploads && curl -fsSL -H "Authorization: Bearer $SLACK_BOT_TOKEN" "${url}" -o "${localPath}"`,
-				];
-			});
-			if (fileDescriptions.length > 0) {
-				messageText = (messageText ? messageText + "\n\n" : "") + "Attached files:\n" + fileDescriptions.join("\n\n");
+			// Post the early ack now (before transcription) for DMs so the user
+			// sees the same ~200ms acknowledgement non-audio messages get.
+			// Channel-thread replies skip this because the parent-message check
+			// downstream may still drop the message — we don't want to leak a
+			// dangling status. Sender + within-work-hours gate it so we don't
+			// ack messages we'll later silently drop.
+			if (event.channel_type === "im" && hasAudioAttachment(event.files)) {
+				const sender = await getSenderInfo(app, event.user, agent);
+				if (passesSenderPolicy(agent, sender) && isWithinWorkHours(agent.workHours)) {
+					const earlyThreadTs = event.thread_ts || event.ts;
+					await postEarlyAudioAck(agent, channel, earlyThreadTs);
+				}
 			}
+
+			messageText = await expandFileAttachments(event.files, agent, messageText);
 		}
 
 		if (!messageText) return;
@@ -407,6 +415,82 @@ function wireAgentApp(agent: AgentConfig, app: App): void {
 			userId: userId || "", senderLine,
 		});
 	});
+}
+
+// ─── File / audio attachment helpers ───────────────────────
+
+function hasAudioAttachment(files: any[] | undefined): boolean {
+	if (!files) return false;
+	return files.some((f) =>
+		isAudioMime(String(f?.mimetype || "")) &&
+		/^https:\/\/files\.slack\.com\//.test(String(f?.url_private || "")),
+	);
+}
+
+// Pre-post the "Working on it…" status before a slow operation (transcription)
+// so the user sees feedback in <200ms. Stored in threadStatusMsgs so the later
+// enqueueOrProcess call reuses it instead of posting a second status.
+async function postEarlyAudioAck(agent: AgentConfig, channel: string, threadTs: string): Promise<void> {
+	const key = threadKey(channel, threadTs);
+	if (threadStatusMsgs.has(key)) return;
+	const ts = await ackMessage(agent, channel, threadTs);
+	if (ts) threadStatusMsgs.set(key, ts);
+}
+
+// Expand Slack file attachments into agent-readable text. Audio files are
+// transcribed locally via whisper.cpp and the transcript is spliced inline.
+// Non-audio files keep the standard "[File: …] Download: curl …" stub the
+// agent runs to fetch them inside its container.
+async function expandFileAttachments(
+	files: any[],
+	agent: AgentConfig,
+	baseText: string,
+): Promise<string> {
+	const audioTranscripts: string[] = [];
+	const fileDescriptions: string[] = [];
+
+	for (const f of files as any[]) {
+		const url = String(f.url_private || "");
+		if (!/^https:\/\/files\.slack\.com\//.test(url)) continue;
+		const rawName = String(f.name || "file");
+		const safeMime = String(f.mimetype || "unknown")
+			.replace(/[^A-Za-z0-9._/+-]/g, "_");
+
+		if (isAudioMime(safeMime)) {
+			const text = await transcribeAudio(url, agent.slackBotToken);
+			if (text) {
+				audioTranscripts.push(
+					`[Voice message, transcribed locally — original: ${JSON.stringify(rawName)} (${safeMime})]\n${text}`,
+				);
+				continue;
+			}
+			// Transcription failed (ffmpeg missing, build failed, etc.) —
+			// fall through to the standard download stub so the agent at
+			// least knows audio was attached.
+		}
+
+		const id = String(f.id || "").replace(/[^A-Za-z0-9_-]/g, "");
+		const safeName = (rawName
+			.replace(/[^A-Za-z0-9._-]/g, "_")
+			.replace(/^\.+/, "")
+			.slice(0, 80)) || "file";
+		const sizeKB = f.size ? Math.round(f.size / 1024) + "KB" : "unknown size";
+		const localPath = `/workspace/uploads/${id || "file"}_${safeName}`;
+		fileDescriptions.push(
+			`[File: name=${JSON.stringify(rawName)} (mime: ${safeMime}, size: ${sizeKB})]\n` +
+			`Saved-as: ${localPath}\n` +
+			`Download: mkdir -p /workspace/uploads && curl -fsSL -H "Authorization: Bearer $SLACK_BOT_TOKEN" "${url}" -o "${localPath}"`,
+		);
+	}
+
+	let result = baseText;
+	if (audioTranscripts.length > 0) {
+		result = (result ? result + "\n\n" : "") + audioTranscripts.join("\n\n");
+	}
+	if (fileDescriptions.length > 0) {
+		result = (result ? result + "\n\n" : "") + "Attached files:\n" + fileDescriptions.join("\n\n");
+	}
+	return result;
 }
 
 // ─── Status indicators (scoped to agent) ───────────────────

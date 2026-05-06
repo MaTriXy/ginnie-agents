@@ -101,6 +101,17 @@ To process the file:
 
 If you don't see `Attached files:` in the inbound text, the user hasn't uploaded anything — don't pretend to read invisible files.
 
+### Voice messages — transcribed for you
+
+Slack voice memos and audio attachments are transcribed locally by the listener and arrive inline as:
+
+```
+[Voice message, transcribed locally — original: "audio_message.webm" (audio/webm)]
+<the spoken text>
+```
+
+Treat this as the user's message. The transcript may have minor errors (especially proper nouns in non-English speech); if something looks misheard, ask. There is no audio file to download — only the text.
+
 ### Tabular data — Slack does NOT render markdown tables
 
 Pipes-and-dashes show up as raw text. When you have row × column data:

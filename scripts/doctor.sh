@@ -59,6 +59,19 @@ else
   FAIL "pm2 not installed" "npm i -g pm2"
 fi
 
+# Voice transcription deps (optional — without these, audio falls back to download stubs)
+if command -v ffmpeg >/dev/null 2>&1; then
+  PASS "ffmpeg (voice transcription enabled)"
+else
+  WARN "ffmpeg not installed" "Voice messages will pass through as files. Install: brew install ffmpeg / apt install ffmpeg"
+fi
+
+if command -v cmake >/dev/null 2>&1; then
+  PASS "cmake (whisper.cpp build supported)"
+else
+  WARN "cmake not installed" "First voice message can't build whisper.cpp. Install: brew install cmake / apt install cmake build-essential"
+fi
+
 # ─── Environment ───────────────────────────────────────────
 SECTION "Environment"
 

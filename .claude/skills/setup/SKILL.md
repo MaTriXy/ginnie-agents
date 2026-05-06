@@ -19,11 +19,19 @@ docker --version        # Need any modern Docker
 docker info >/dev/null  # Daemon must be running
 git --version
 which pm2 || npm i -g pm2
+which ffmpeg            # Optional but recommended — enables voice-message transcription
+which cmake             # Optional but recommended — needed to build whisper.cpp on first voice message
 ```
 
 If `docker info` fails, the daemon isn't running — tell the user to start Docker Desktop / their Docker daemon.
 
 If Node is older than 22, point them at https://nodejs.org/.
+
+`ffmpeg` and `cmake` are **optional**. Without them, voice messages from Slack still arrive but pass through as download stubs (the agent can't transcribe them). Tell the user this and offer to install:
+- macOS: `brew install ffmpeg cmake`
+- Ubuntu/Debian: `sudo apt install -y ffmpeg cmake build-essential`
+
+The first voice message ever received triggers a one-time ~2-3min whisper.cpp build + ~466MB model download into `listener/.whisper/` (gitignored).
 
 ## Step 2 — Authentication
 
@@ -190,6 +198,24 @@ If user picks **(a)**:
 If user picks **(b)**: nothing to store. The `create-agent` skill will fall back to the manual click-through walkthrough.
 
 Either way, this is one-time. After this, `create-agent` reads `.env` and picks the right path automatically.
+
+## Step 7.5 — Voice transcription (optional)
+
+Ask:
+
+> "Do you want to enable voice-message transcription? Slack voice memos and audio attachments will be transcribed locally via whisper.cpp before agents see them. One-time install: ~466MB model download + ~2-3 min build. Fully offline thereafter, zero per-message cost. **Y/n?**"
+
+If user picks **N** (or anything not yes): skip this step. Audio attachments will pass through as standard download stubs (agents see "[File: ...] Download: curl ..." and have to handle it themselves — which they can't, since Claude doesn't process audio). Tell the user they can run `bash scripts/install-whisper.sh` later to enable.
+
+If user picks **Y**:
+
+```bash
+bash scripts/install-whisper.sh
+```
+
+The script is idempotent and self-checking — it verifies prerequisites (`ffmpeg`, `cmake`/`make`, `g++`/`clang++`), clones whisper.cpp into `listener/.whisper/`, builds it, and downloads the `small` multilingual model (~466MB). If prereqs are missing it prints the exact `brew`/`apt` command to install them and exits — re-run after.
+
+No listener restart is required afterward; the runtime checks for the binary on each audio message.
 
 ## Step 8 — Start PM2
 

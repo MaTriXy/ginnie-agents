@@ -3,6 +3,9 @@ dist/
 *.log
 .DS_Store
 
+# Whisper.cpp build + model cache (lazy-built on first audio message)
+listener/.whisper/
+
 # Runtime data
 data/
 agents/*/logs/

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] — 2026-05-06
+
+Local voice-message transcription. Slack voice memos and audio attachments are now transcribed by `whisper.cpp` on the host before the agent sees them — the agent receives the transcript spliced into the message text, never the audio file. Fully offline, zero per-message cost.
+
+### Why
+
+Agents can't process audio. Without transcription, voice memos arrived as download stubs the agent had to fetch and then admit it couldn't read. With transcription, the user gets the same conversational experience whether they typed or spoke, and operators don't pay per minute of speech.
+
+### Added
+
+- **`scripts/install-whisper.sh`** — idempotent installer. Verifies prerequisites (`ffmpeg`, `cmake`/`make`, a C++ toolchain), clones `whisper.cpp` into `listener/.whisper/`, builds it, downloads the `small` multilingual model (~466 MB) from HuggingFace. If prereqs are missing it prints the exact `brew`/`apt` command and exits cleanly.
+- **`listener/src/transcribe.ts`** — runtime transcription helper. Detects audio attachments by mime type, runs `whisper.cpp` against the downloaded file, returns the transcript. Falls back to the standard download-stub flow with a one-time warning if the binary isn't installed.
+- **Setup skill prompt (Step 7.5).** `/setup` now asks `Do you want to enable voice-message transcription? [Y/n]` and runs the installer when the user accepts. Skipping is fine — the listener degrades gracefully.
+- **Doctor checks for `ffmpeg` and `cmake`.** Optional, surfaced as `WARN` (not `FAIL`) so users without audio needs aren't blocked.
+- **`templates/agent/PROMPT.md`: "Voice messages — transcribed for you"** section. Tells agents how transcripts are spliced inline and to ask if a proper noun looks misheard.
+
+### Changed
+
+- **`listener/src/index.ts`: audio attachments are expanded before the agent runs.** New `expandFileAttachments` splits files into audio (transcribed inline) and non-audio (kept as download stubs). Voice-only `@mentions` (no text after stripping the mention) are now accepted instead of being dropped as empty. The early `Working on it…` ack now posts before transcription so the user sees feedback in the same ~200 ms window non-audio messages get.
+- **`.gitignore`: `listener/.whisper/`** — build artifacts and the model file stay local.
+
+### Operator note
+
+Existing installs: `bash scripts/install-whisper.sh` to enable; no listener restart required afterward (the runtime checks for the binary on each audio message). Requires `ffmpeg` on `PATH` and a C++ toolchain. Fully offline once installed.
+
 ## [0.2.6] — 2026-05-06
 
 Stop the scheduler from silently dropping routines an agent wrote with the wrong shape, and give agents the canonical schema in their context so they don't write the wrong shape in the first place.
