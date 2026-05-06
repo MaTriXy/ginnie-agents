@@ -128,6 +128,17 @@ From: <name> | role: <role> | email: <if known>
 
 Agents respond differently to a founder, a peer agent, a teammate, or an unknown user. Sender identity comes from the merged team directory; if a sender isn't in the directory, the framework marks them `unknown` or `external`. For agents with `boundaries: "write"`, the listener refuses to dispatch from `unknown`/`external` senders at all — the agent never wakes up. Defense-in-depth on top of any prompt-level guidance. Read-only agents are not gated (their blast radius is bounded). Per-agent opt-out: `"allow_unverified_senders": true` in `config.json`, for cases like a public Q&A bot where you do want random Slack users answered.
 
+### Voice messages, transcribed locally
+
+Slack voice memos and audio attachments are transcribed by `whisper.cpp` on your host before the agent ever sees them. The agent receives the transcript spliced inline as the message text and never sees the audio file. Fully offline, zero per-message cost.
+
+```
+[Voice message, transcribed locally — original: "audio_message.webm" (audio/webm)]
+hey can you check what's happening with the deploy this morning
+```
+
+Opt-in at setup. The first run of `/setup` asks `Do you want to enable voice-message transcription? [Y/n]` and runs `bash scripts/install-whisper.sh` if you say yes — clones whisper.cpp, builds it, downloads the multilingual `small` model (~466 MB). One-time. Skipping is fine; without it, audio attachments fall back to standard download stubs (the agent can't read those) and the listener logs a one-time warning. Requires `ffmpeg` and a C++ toolchain (`cmake`/`make`, `g++`) on the host. The point: same conversational experience whether your team types or speaks, with no per-minute speech-to-text bill.
+
 ### Work hours
 
 Each agent has `work_hours` in its `config.json`:
@@ -347,7 +358,7 @@ If any of those are dealbreakers, this isn't your framework.
 
 ## Status
 
-- **Released**: v0.1.0 (initial), v0.2.0 (the Watcher), v0.2.1 (polish from the first real install). See [Releases](https://github.com/nitaybz/ginnie-agents/releases) and [CHANGELOG](CHANGELOG.md).
+- **Released**: v0.1.0 (initial) through v0.2.7 (latest — local voice-message transcription via whisper.cpp). Other notable milestones along the way: v0.2.0 (the Watcher), v0.2.2 (security hardening from a community audit), v0.2.4 (`ANTHROPIC_API_KEY` as a first-class auth path), v0.2.5 (file uploads end-to-end), v0.2.6 (routines schema auto-injected so agents stop silently writing the wrong shape). See [Releases](https://github.com/nitaybz/ginnie-agents/releases) and [CHANGELOG](CHANGELOG.md) for the full history.
 - **Validated** end-to-end: fresh-clone install on a clean machine, full create-agent flow, live Slack DM round-trip with the agent's voice and memory both working.
 - **MIT-licensed.**
 

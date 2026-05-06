@@ -171,6 +171,22 @@ The agent itself only references the unprefixed paths (`./memory/`, `./skills/`,
 
 When a schedule fires, the listener spawns a fresh container with the schedule's `message` as the input. The agent's response is logged but typically not sent anywhere — most schedules are autonomous (e.g., "scan fleet, post if anything's wrong"). The agent itself decides whether to post to Slack.
 
+The schema (`id`, `cron`, `message`, optional `description`/`enabled`) is auto-injected into every agent's system prompt via `framework/skills/routines/SKILL.md`, so an agent editing its own `schedules.json` writes the correct shape regardless of how customized its `PROMPT.md` is. Rejected entries (missing required field, invalid cron, parse error) are written to `data/scheduler-rejects.json` with a per-entry reason; the Watcher reads this file on its periodic check and DMs the operator one alert per affected agent (24h cooldown). Silent drops can't happen — the operator finds out within an hour at most. On a clean reload the agent's record is removed.
+
+## Voice transcription
+
+Audio attachments and Slack voice memos are transcribed locally by `whisper.cpp` (`listener/src/transcribe.ts`) before the agent runs. The pipeline:
+
+1. The Slack message handler in `listener/src/index.ts` splits incoming files into audio (by mime type) and non-audio.
+2. Audio files trigger an early `Working on it…` ack so the user sees feedback in the same ~200 ms window non-audio messages get, before transcription begins.
+3. The listener downloads the audio via Slack's `files:read` scope.
+4. `whisper.cpp` runs against the multilingual `small` model in `listener/.whisper/`, output captured as text.
+5. The transcript is spliced inline into the message text the agent receives — the agent never sees the audio file itself.
+
+Non-audio attachments are unchanged: the listener still appends a `[File: …] Download: curl …` stub for the agent to fetch inside its container. Voice-only `@mentions` (no text after the mention is stripped) are accepted instead of being dropped as empty.
+
+If `whisper.cpp` isn't installed (the user said `n` at setup, or skipped `scripts/install-whisper.sh`), audio falls through to the standard download-stub path and the listener logs a one-time warning. Zero per-transcription cost; ~466 MB model on disk; ~2-3 min one-time build. Fully offline thereafter.
+
 ## Update flow
 
 Framework updates ship via `git pull`. User content lives in directories the framework never writes to (`agents/`, `shared/`, `config/`, `.env`), so pulls don't conflict with user state. The `update-framework` skill wraps the predictable sequence:
