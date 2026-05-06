@@ -287,6 +287,52 @@ export function checkMemoryCaps(): CheckResult[] {
 	return out;
 }
 
+// ─── Scheduler rejects per agent ───────────────────────────
+//
+// The listener's scheduler writes data/scheduler-rejects.json whenever an
+// agent's schedules.json contains entries it can't load (wrong field names,
+// invalid cron, parse error). Without an alert here, the rejection is silent:
+// the agent thinks the routine is scheduled, but it never fires.
+//
+// One alert per agent (debounced 24h via the existing cooldown machinery).
+// On the next reload that produces zero rejects, the agent's entry is removed
+// from the file — but the cooldown stays, so we don't churn alerts during a
+// flapping save/fix cycle.
+export function checkSchedulerRejects(): CheckResult[] {
+	const out: CheckResult[] = [];
+	const file = path.join(REPO, "data", "scheduler-rejects.json");
+	if (!existsSync(file)) return out;
+	let data: Record<string, Array<{ id?: string; reason: string }>>;
+	try {
+		data = JSON.parse(readFileSync(file, "utf-8"));
+	} catch {
+		return out;
+	}
+	for (const [agentName, rejects] of Object.entries(data)) {
+		if (!Array.isArray(rejects) || rejects.length === 0) continue;
+		const lines = rejects.map((r) => {
+			const tag = r.id ? `\`${r.id}\`` : "(no id)";
+			return `• ${tag} — ${r.reason}`;
+		});
+		out.push({
+			key: `scheduler-rejects-${agentName}`,
+			severity: "warn",
+			message:
+				`🚫 *${agentName}/schedules.json has ${rejects.length} routine(s) the scheduler couldn't load.* ` +
+				`These will not fire until fixed.\n\n` +
+				lines.join("\n") +
+				`\n\nFix with the schema in \`framework/skills/routines/SKILL.md\`. ` +
+				`The listener hot-reloads on save; check \`pm2 logs ginnie-agents-listener\` ` +
+				`for \`loaded\` lines once corrected.`,
+			actions: [
+				{ type: "ack_24h", label: "Ack 24h" },
+				{ type: "ack_7d", label: "Ack 7d" },
+			],
+		});
+	}
+	return out;
+}
+
 export function runAllChecks(): CheckResult[] {
 	const results: (CheckResult | null)[] = [
 		checkTokenAge(),
@@ -294,6 +340,7 @@ export function runAllChecks(): CheckResult[] {
 		checkListenerHealth(),
 		checkDisk(),
 		...checkMemoryCaps(),
+		...checkSchedulerRejects(),
 	];
 	return results.filter((r): r is CheckResult => r !== null);
 }

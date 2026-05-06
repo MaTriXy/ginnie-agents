@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] — 2026-05-06
+
+Stop the scheduler from silently dropping routines an agent wrote with the wrong shape, and give agents the canonical schema in their context so they don't write the wrong shape in the first place.
+
+### Why
+
+An agent (Casper) added four routines to its `schedules.json` and reported success. None ever fired. Root cause: the agent used `name` + `prompt` keys, but `listener/src/scheduler.ts` requires `id` + `cron` + `message`. Each entry was rejected with a single `console.warn` to PM2 logs and skipped — the agent thought it was scheduled, the operator never knew. The agent's `PROMPT.md` had been customized in a way that lost the routines section from the template, so it had no schema reference in context.
+
+### Added
+
+- **`framework/skills/routines/SKILL.md`** — canonical routines schema, jq edit recipes, cron format, and a list of common mistakes that get silently dropped. Auto-injected into every agent's system prompt by `docker/entrypoint.mjs` alongside `memory-curation/SKILL.md`. Every agent — current, future, however customized — now has the schema in context.
+- **`listener/src/scheduler.ts`: persisted reject log.** Invalid entries are still skipped, but now also recorded to `data/scheduler-rejects.json` with a specific reason per entry (missing fields named, bad cron expression quoted, parse error, etc.). On a clean reload the agent's record is removed.
+- **`listener/src/watcher-checks.ts: checkSchedulerRejects()`.** Reads the reject file and produces one alert per affected agent, listing each rejected entry's id and reason. Wired into `runAllChecks` with the existing 24h cooldown machinery, so a save → fix cycle doesn't churn alerts.
+
+### Operator note
+
+The reject DM goes through the watcher process (`WATCHER_BOT_TOKEN` + `OPERATOR_SLACK_ID` in `.env`). If the watcher isn't configured, the reject file is still written and visible at `data/scheduler-rejects.json` — the alerts just aren't delivered until the watcher is up. See the `setup-watcher` skill.
+
 ## [0.2.5] — 2026-04-29
 
 Plumbing fix for Slack file uploads + matching template guidance so agents actually do something with the file once it lands.

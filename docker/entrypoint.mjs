@@ -59,8 +59,9 @@ if (!message) {
 //   2. rendered team directory from            — who's who (humans + agents)
 //      /workspace/.shared/known-users.json
 //   3. /workspace/SOUL.md                      — agent's backstory, voice, quirks
-//   4. /workspace/.framework/skills/           — canonical memory model (framework-shipped)
-//      memory-curation/SKILL.md
+//   4. /workspace/.framework/skills/           — framework-shipped runtime skills
+//      memory-curation/SKILL.md                  (canonical memory model)
+//      routines/SKILL.md                         (canonical schedules.json schema)
 //   5. /workspace/PROMPT.md                    — agent-specific role & behaviors
 //   6. /workspace/memory/rules.md              — agent's USER-STATED RULES (always loaded)
 //   7. /workspace/memory/playbook.md           — agent's SETTLED PATTERNS (always loaded)
@@ -138,6 +139,7 @@ const sharedKnownUsersPath = "/workspace/.shared/known-users.json";
 const localKnownUsersPath = "/workspace/known-users.json";
 const soulPath = "/workspace/SOUL.md";
 const memorySkillPath = "/workspace/.framework/skills/memory-curation/SKILL.md";
+const routinesSkillPath = "/workspace/.framework/skills/routines/SKILL.md";
 const promptPath = "/workspace/PROMPT.md";
 const rulesPath = "/workspace/memory/rules.md";
 const playbookPath = "/workspace/memory/playbook.md";
@@ -162,6 +164,7 @@ if (existsSync(soulPath)) {
 }
 
 if (existsSync(memorySkillPath)) parts.push(readFileSync(memorySkillPath, "utf-8"));
+if (existsSync(routinesSkillPath)) parts.push(readFileSync(routinesSkillPath, "utf-8"));
 if (existsSync(promptPath)) parts.push(readFileSync(promptPath, "utf-8"));
 
 // Always-loaded memory tiers. Rules and playbook are injected here — the
