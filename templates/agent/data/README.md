@@ -1,0 +1,1 @@
+Per-agent persistent data directory. Mounted RW at /workspace/data inside the container — your agent stores any cross-session machine state here (cursors, snapshots, scratch JSON, etc.). The framework imposes no schema. Files in this directory persist across container restarts; everything else under agents/<name>/ except memory/, schedules.json is read-only inside the container.

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.8] — 2026-05-10
+
+Generic per-agent `data/` directory and Block Kit hygiene rules. Two changes hauled out of an EA-style agent build, both useful framework-wide.
+
+### Why
+
+Agents that maintain cross-sweep state (cursors, CRMs, scratch JSON) had nowhere persistent to write — `memory/` is for narrative reasoning state, and the only other mounts were read-only. Writes silently evaporated when the ephemeral container exited, so each "sweep" started from zero and re-processed the entire backlog every time. Symptom: a Slack-watching EA agent kept paging the operator with a 🚨 about missing-state-on-disk, even though it had successfully written that state minutes earlier.
+
+Separately, agents posting Slack digests with N actionable items × buttons-per-item kept tripping over a Block Kit gotcha: any button click `chat.update`s the whole message, collapsing the actions across the *other* items too — the operator loses the ability to act on anything else in that digest.
+
+### Added
+
+- **`agents/<name>/data/` directory.** Runner mounts it RW at `/workspace/data` inside the container if present. No schema, no naming convention — agents store any persistent runtime state they own (cursors, CRMs, snapshots, draft caches). Optional: agents that don't need it just skip the directory.
+- **`shared/slack-blocks.md`: "One decision per message" rule.** A Slack message with buttons must contain exactly one actionable decision. For digests with N items, post one short header (no buttons) summarizing counts, then one follow-up `chat.postMessage` per item, each in its own thread. Eliminates the cross-item-collapse bug.
+- **`shared/slack-blocks.md`: "Show before you ask" rule.** If a button approves an outbound message (reply, email, calendar invite), the exact text being sent must appear above the buttons. The button click is the send-approval on the shown text — no second confirmation step.
+- **`templates/agent/data/`** scaffolded into the agent template with a `README.md` explaining the convention.
+
+### Changed
+
+- **`listener/src/runner.ts`:** mount `agents/<name>/data/` RW at `/workspace/data`. Sits next to the existing `memory/` (RW) and `schedules.json` (RW) mounts.
+
+### Migration
+
+Agents with cursor/CRM-style files should move them into `data/`:
+
+```bash
+# inside agents/<your-agent>/
+mkdir -p data
+mv state.json contacts.json data/
+# update path refs in PROMPT.md, skills, schedules.json: ./state.json → ./data/state.json
+```
+
+Then `npm run build` in `listener/` and `pm2 restart ginnie-agents-listener --update-env`.
+
 ## [0.2.7] — 2026-05-06
 
 Local voice-message transcription. Slack voice memos and audio attachments are now transcribed by `whisper.cpp` on the host before the agent sees them — the agent receives the transcript spliced into the message text, never the audio file. Fully offline, zero per-message cost.

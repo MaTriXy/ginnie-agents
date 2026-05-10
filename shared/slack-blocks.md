@@ -62,3 +62,8 @@ Use these patterns for interactive messages. When a user clicks a button or sele
 - Always include `text` as fallback
 - `style: "primary"` = green, `style: "danger"` = red
 - Buttons for yes/no, radio for mutually exclusive options, dropdown for long lists
+
+## One decision per message (hard rule, all agents)
+- A Slack message with buttons must contain exactly **one** actionable decision. Never stack `Item A: [Approve] [Decline]   Item B: [Approve] [Decline]   Item C: [Approve] [Decline]` in a single message. When the user clicks any button, your follow-up `chat.update` (or implicit message replacement via `response_url`) collapses the buttons across the *whole* message — and the user loses the ability to act on the other items.
+- For digests with N actionable items: post one short header message (no buttons) summarizing counts, then one follow-up `chat.postMessage` per item, each with its own buttons. Each follow-up becomes its own thread, so per-item discussion (e.g. "Edit & send" → editing in thread) doesn't pollute other items.
+- "Show before you ask" — if a button approves an outbound message (reply, email, calendar invite, anything sent on the user's behalf), the **exact text being sent** must appear in the message section above the buttons. The button click is the send-approval on the shown text. No "what would you like me to say?" without showing a draft first.

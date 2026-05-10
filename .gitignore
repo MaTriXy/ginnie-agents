@@ -12,6 +12,10 @@ agents/*/logs/
 agents/*/sessions/
 agents/*/.*.lock
 
+# …but the template's data/ is the scaffolding for new agents — keep it tracked.
+!templates/agent/data/
+!templates/agent/data/**
+
 # Credentials and env (local only, never commit)
 agents/*/credentials.json
 .env

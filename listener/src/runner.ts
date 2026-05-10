@@ -308,6 +308,15 @@ function spawnContainer(
 			dockerArgs.push("-v", `${schedulesPath}:/workspace/schedules.json`);
 		}
 
+		// Per-agent persistent data directory — cursors, CRM, scratch state,
+		// any cross-session machine state the agent owns. Read-write, mounted
+		// at /workspace/data. Generic primitive; the framework imposes no
+		// schema or filename. Agents that don't need it just skip the dir.
+		const dataDir = path.join(agent.dir, "data");
+		if (existsSync(dataDir)) {
+			dockerArgs.push("-v", `${dataDir}:/workspace/data`);
+		}
+
 		// Skills directory (read-only, if exists)
 		const skillsDir = path.join(agent.dir, "skills");
 		if (existsSync(skillsDir)) {

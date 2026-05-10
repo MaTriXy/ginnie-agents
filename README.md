@@ -101,6 +101,12 @@ There's no "load my recent memory" tool, by design. Such a tool always loads eit
 
 Three protections keep memory from rotting: `merge=union` on memory files in `.gitattributes` (any merge keeps both sides' lines); a `commit-msg` git hook that rejects commits exceeding the caps or shrinking an episode file; and the Watcher daemon that DMs you when a memory file approaches its cap, so you fix it before the hook bites.
 
+### Persistent data the agent owns
+
+Memory is the agent's narrative state — rules, settled patterns, the journal. For *machine* state — cursors into a mailbox or feed, a CRM keyed by phone, snapshots of an external system, draft caches — agents have `agents/<name>/data/`. The framework mounts it RW at `/workspace/data` inside the container, with no schema and no naming convention. Optional: agents that don't need it just skip the directory.
+
+Why a separate concept from memory? Different shapes, different lifecycles. Memory is text the agent reads to *think*; data is JSON the agent reads to *resume*. Keeping them apart means memory caps and `merge=union` don't accidentally apply to JSON files (which would corrupt them on conflict), and `data/` doesn't need any of the per-line discipline memory enforces.
+
 ### Routines
 
 Each agent has a `schedules.json` it owns. Cron-style entries the listener watches and reloads automatically:
@@ -358,7 +364,7 @@ If any of those are dealbreakers, this isn't your framework.
 
 ## Status
 
-- **Released**: v0.1.0 (initial) through v0.2.7 (latest — local voice-message transcription via whisper.cpp). Other notable milestones along the way: v0.2.0 (the Watcher), v0.2.2 (security hardening from a community audit), v0.2.4 (`ANTHROPIC_API_KEY` as a first-class auth path), v0.2.5 (file uploads end-to-end), v0.2.6 (routines schema auto-injected so agents stop silently writing the wrong shape). See [Releases](https://github.com/nitaybz/ginnie-agents/releases) and [CHANGELOG](CHANGELOG.md) for the full history.
+- **Released**: v0.1.0 (initial) through v0.2.8 (latest — generic per-agent `data/` directory and Block Kit hygiene rules). Other notable milestones along the way: v0.2.0 (the Watcher), v0.2.2 (security hardening from a community audit), v0.2.4 (`ANTHROPIC_API_KEY` as a first-class auth path), v0.2.5 (file uploads end-to-end), v0.2.6 (routines schema auto-injected so agents stop silently writing the wrong shape), v0.2.7 (local voice-message transcription via whisper.cpp). See [Releases](https://github.com/nitaybz/ginnie-agents/releases) and [CHANGELOG](CHANGELOG.md) for the full history.
 - **Validated** end-to-end: fresh-clone install on a clean machine, full create-agent flow, live Slack DM round-trip with the agent's voice and memory both working.
 - **MIT-licensed.**
 

@@ -30,7 +30,8 @@ This is the **public framework** for ginnie-agents. Users clone this repo and ad
 | `scripts/hooks/` | framework | Git hooks (memory invariant enforcement) |
 | `templates/agent/` | framework | Agent scaffold |
 | `.claude/skills/` | framework | Claude Code interface skills (setup, create-agent, ...) |
-| `agents/<name>/` | user | Per-agent files: PROMPT.md, SOUL.md, memory/, skills/, schedules.json, credentials.json, config.json, known-users.json |
+| `agents/<name>/` | user | Per-agent files: PROMPT.md, SOUL.md, memory/, data/, skills/, schedules.json, credentials.json, config.json, known-users.json |
+| `agents/<name>/data/` | user (optional) | Per-agent persistent data directory — RW-mounted at `/workspace/data` inside the container. Cursors, CRM files, scratch JSON, anything the agent needs across sessions. The framework imposes no schema; agents that don't need it just skip the directory. |
 | `shared/skills/` | user | Cross-agent user skills |
 | `shared/known-users.json` | user | Team directory (humans + agents) |
 | `shared/foundation.md` | user (optional) | Optional company/team context auto-prepended to every agent's system prompt |
